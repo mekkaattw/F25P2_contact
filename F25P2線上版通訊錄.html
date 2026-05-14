@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>廠商通訊錄-管理版</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding: 10px; background-color: #f0f2f5; font-family: "Microsoft JhengHei", sans-serif; padding-bottom: 100px; }
+    .container { max-width: 500px; padding: 0; }
+    
+    h4 { font-size: 32px; font-weight: 900; text-align: center; margin: 20px 0; color: #000; }
+    
+    /* 大搜尋框優化 */
+    .search-box { 
+      font-size: 22px; 
+      padding: 15px; 
+      border-radius: 15px; 
+      border: 3px solid #007bff; 
+      margin-bottom: 15px; 
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+    }
+    
+    .category-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    .btn-cat { font-size: 20px; font-weight: bold; padding: 12px 20px; border-radius: 50px; border: 2px solid #007bff; background: white; color: #007bff; }
+    .btn-cat.active { background: #007bff; color: white; }
+
+    .contact-card { background: white; border-radius: 20px; padding: 25px; margin-bottom: 25px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); position: relative; border: 1px solid #eee; }
+    .vendor-name { font-size: 28px; font-weight: 900; color: #002752; margin-bottom: 12px; padding-right: 45px; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+    
+    .data-row { margin-bottom: 12px; }
+    .data-label { font-size: 16px; color: #888; font-weight: bold; margin-bottom: 2px; }
+    .data-value { font-size: 24px; color: #000; font-weight: 500; }
+    .highlight-cat { color: #d63384; font-weight: bold; font-size: 24px; }
+    
+    /* 功能按鈕 */
+    .action-row { display: flex; gap: 12px; margin-top: 20px; }
+    .btn-call { flex: 2; background: #28a745; color: white; font-size: 26px; font-weight: bold; padding: 18px; border-radius: 15px; text-decoration: none; text-align: center; box-shadow: 0 6px 0 #1e7e34; }
+    .btn-call:active { transform: translateY(4px); box-shadow: none; }
+    .btn-share { flex: 1; background: #17a2b8; color: white; font-size: 20px; padding: 18px; border-radius: 15px; border: none; font-weight: bold; }
+    
+    .btn-delete { position: absolute; top: 25px; right: 20px; background: none; border: none; color: #ddd; font-size: 26px; }
+
+    /* 懸浮新增按鈕 */
+    .fab { position: fixed; bottom: 25px; right: 25px; width: 80px; height: 80px; background: #007bff; color: white; border-radius: 50%; border: none; font-size: 50px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+
+<div class="container mx-auto">
+  <h4>廠商通訊錄</h4>
+
+  <input type="text" id="searchInput" class="search-box form-control" placeholder="🔍 搜公司、工項、人名..." oninput="filterData()">
+
+  <div id="categoryButtons" class="category-container">
+    <button class="btn-cat active" onclick="setCategory('全部', this)">全部</button>
+  </div>
+
+  <div id="contactList">
+    <div class="text-center p-5 fs-3 text-muted">讀取中...</div>
+  </div>
+</div>
+
+<button class="fab" onclick="showAddModal()">+</button>
+
+<div class="modal fade" id="dataModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius: 20px;">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold fs-4" id="modalTitle">新增廠商</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editId">
+        <div class="mb-3"><label class="form-label fw-bold fs-5">公司名稱</label><input type="text" id="mName" class="form-control form-control-lg"></div>
+        <div class="mb-3"><label class="form-label fw-bold fs-5">工項分類</label><input type="text" id="mCat" class="form-control form-control-lg" placeholder="如:泥作、五金"></div>
+        <div class="mb-3"><label class="form-label fw-bold fs-5">電話</label><input type="tel" id="mPhone" class="form-control form-control-lg"></div>
+        <div class="mb-3"><label class="form-label fw-bold fs-5">姓名</label><input type="text" id="mPerson" class="form-control form-control-lg"></div>
+        <div class="mb-3"><label class="form-label fw-bold fs-5">工作負責內容</label><textarea id="mNote" class="form-control form-control-lg" rows="3"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-lg" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary btn-lg px-5" onclick="saveData()">儲存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const SUPABASE_URL = 'https://qvxsuidwbvhdwnaxmivh.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2eHN1aWR3YnZoZHduYXhtaXZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NzQxMTksImV4cCI6MjA5NDI1MDExOX0.ryES2yxKJsxhdfOfsZ6fvRqljM9reoyQPly8pbviirY';
+
+  const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let allData = [];
+  let currentCategory = '全部';
+  const myModal = new bootstrap.Modal(document.getElementById('dataModal'));
+
+  async function loadData() {
+    try {
+      const { data, error } = await _supabase.from('contacts').select('*').order('name');
+      if (error) throw error;
+      allData = data;
+      updateCategoryButtons();
+      filterData();
+    } catch (err) {
+      alert("讀取失敗，請確認網路連線");
+    }
+  }
+
+  function updateCategoryButtons() {
+    const categories = ['全部', ...new Set(allData.map(item => item.category || '未分類').filter(c => c))];
+    const btnContainer = document.getElementById('categoryButtons');
+    btnContainer.innerHTML = categories.map(cat => `
+      <button class="btn-cat ${cat === currentCategory ? 'active' : ''}" onclick="setCategory('${cat}', this)">${cat}</button>
+    `).join('');
+  }
+
+  function setCategory(cat, btn) {
+    currentCategory = cat;
+    document.querySelectorAll('.btn-cat').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    filterData();
+  }
+
+  // 模糊搜尋核心邏輯
+  function filterData() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    
+    const filtered = allData.filter(item => {
+      // 檢查工項標籤是否符合
+      const matchCat = (currentCategory === '全部' || (item.category || '未分類') === currentCategory);
+      
+      // 模糊比對：公司名、工項、人名
+      const matchSearch = (item.name || '').toLowerCase().includes(query) || 
+                          (item.category || '').toLowerCase().includes(query) ||
+                          (item.person || '').toLowerCase().includes(query);
+                          
+      return matchCat && matchSearch;
+    });
+    renderList(filtered);
+  }
+
+  function renderList(data) {
+    const listDiv = document.getElementById('contactList');
+    if(data.length === 0) {
+      listDiv.innerHTML = '<div class="text-center p-5 fs-3 text-muted">無符合資料</div>';
+      return;
+    }
+    listDiv.innerHTML = data.map(item => `
+      <div class="contact-card">
+        <button class="btn-delete" onclick="deleteData(${item.id})">🗑️</button>
+        <div class="vendor-name" onclick="showEditModal(${JSON.stringify(item).replace(/"/g, '&quot;')})">${item.name}</div>
+        
+        <div class="data-row">
+          <div class="data-label">工項分類</div>
+          <div class="highlight-cat">${item.category || '一般'}</div>
+        </div>
+
+        <div class="data-row">
+          <div class="data-label">姓名</div>
+          <div class="data-value">${item.person || '未填'}</div>
+        </div>
+
+        <div class="data-row">
+          <div class="data-label">工作負責內容</div>
+          <div class="data-value" style="font-size: 20px; color: #666;">${item.note || '-'}</div>
+        </div>
+
+        <div class="action-row">
+          <a href="tel:${item.phone}" class="btn-call">📞 直接撥號</a>
+          <button class="btn-share" onclick="shareInfo('${item.name}', '${item.phone}', '${item.category}', '${item.person}')">分享</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 分享功能：調用手機原生分享介面
+  function shareInfo(name, phone, cat, person) {
+    const text = `【工程廠商資訊】\n公司：${name}\n工項：${cat}\n聯絡人：${person}\n電話：${phone}`;
+    if (navigator.share) {
+      navigator.share({ title: name, text: text }).catch(console.error);
+    } else {
+      alert("請手動複製內容：\n" + text);
+    }
+  }
+
+  // CRUD 操作
+  function showAddModal() {
+    document.getElementById('modalTitle').innerText = "新增廠商";
+    document.getElementById('editId').value = "";
+    document.getElementById('mName').value = "";
+    document.getElementById('mCat').value = "";
+    document.getElementById('mPhone').value = "";
+    document.getElementById('mPerson').value = "";
+    document.getElementById('mNote').value = "";
+    myModal.show();
+  }
+
+  function showEditModal(item) {
+    document.getElementById('modalTitle').innerText = "修改資料";
+    document.getElementById('editId').value = item.id;
+    document.getElementById('mName').value = item.name;
+    document.getElementById('mCat').value = item.category || "";
+    document.getElementById('mPhone').value = item.phone || "";
+    document.getElementById('mPerson').value = item.person || "";
+    document.getElementById('mNote').value = item.note || "";
+    myModal.show();
+  }
+
+  async function saveData() {
+    const id = document.getElementById('editId').value;
+    const obj = {
+      name: document.getElementById('mName').value,
+      category: document.getElementById('mCat').value,
+      phone: document.getElementById('mPhone').value,
+      person: document.getElementById('mPerson').value,
+      note: document.getElementById('mNote').value
+    };
+
+    if (!obj.name) return alert("請填寫公司名稱");
+
+    if (id) {
+      await _supabase.from('contacts').update(obj).eq('id', id);
+    } else {
+      await _supabase.from('contacts').insert([obj]);
+    }
+    myModal.hide();
+    loadData();
+  }
+
+  async function deleteData(id) {
+    if (!confirm("確定要刪除這筆資料嗎？")) return;
+    await _supabase.from('contacts').delete().eq('id', id);
+    loadData();
+  }
+
+  window.onload = loadData;
+</script>
+</body>
+</html>
